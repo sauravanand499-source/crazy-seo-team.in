@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { LogIn, LogOut, ShieldCheck, UserPlus } from 'lucide-react';
+import { LogIn, LogOut, Mail, ShieldCheck, UserPlus } from 'lucide-react';
 import { supabase, isOwner } from './lib/supabase';
 
 export type AuthUser = { id: string; email?: string; name?: string; avatar?: string; owner: boolean };
@@ -9,7 +9,6 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!supabase) { setLoading(false); return; }
     supabase.auth.getSession().then(({ data }) => {
       const u = data.session?.user;
       setUser(u ? mapUser(u) : null);
@@ -24,7 +23,6 @@ export function useAuth() {
   }, []);
 
   const signInWithGoogle = async () => {
-    if (!supabase) throw new Error('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin },
@@ -32,8 +30,18 @@ export function useAuth() {
     if (error) throw error;
   };
 
-  const signOut = async () => { await supabase?.auth.signOut(); };
-  return { user, loading, signInWithGoogle, signOut, configured: !!supabase };
+  const signInWithEmail = async (email: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) throw new Error('Please enter your Gmail/email address.');
+    const { error } = await supabase.auth.signInWithOtp({
+      email: cleanEmail,
+      options: { emailRedirectTo: `${window.location.origin}/dashboard` },
+    });
+    if (error) throw error;
+  };
+
+  const signOut = async () => { await supabase.auth.signOut(); };
+  return { user, loading, signInWithGoogle, signInWithEmail, signOut, configured: true };
 }
 
 function mapUser(u: { id: string; email?: string; user_metadata?: Record<string, string> }): AuthUser {
@@ -43,10 +51,38 @@ function mapUser(u: { id: string; email?: string; user_metadata?: Record<string,
 }
 
 export function AuthPage({ onBack }: { onBack: () => void }) {
-  const { signInWithGoogle, configured } = useAuth();
+  const { signInWithGoogle, signInWithEmail } = useAuth();
+  const [email, setEmail] = useState('');
   const [error, setError] = useState('');
-  const login = async () => { setError(''); try { await signInWithGoogle(); } catch (e) { setError(e instanceof Error ? e.message : 'Google sign-in failed'); } };
-  return <div className="auth-page"><div className="auth-card"><div className="auth-logo">C</div><h1>Welcome to Crazy SEO Team</h1><p>Login or create your account securely with your Google/Gmail account.</p><button className="google-btn" onClick={login}><span>G</span><b><LogIn size={16}/> Continue with Google</b></button><div className="auth-create"><UserPlus size={15}/> New users automatically get an account after Google sign-in.</div>{error && <div className="auth-error">{error}</div>}{!configured && <div className="auth-warning">Supabase OAuth is not configured yet. Add the two Vite Supabase environment variables in your deployment.</div>}<button className="back-btn" onClick={onBack}>← Back to website</button></div></div>;
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const loginGoogle = async () => {
+    setError(''); setMessage(''); setBusy(true);
+    try {
+      await signInWithGoogle();
+    } catch (e) {
+      const text = e instanceof Error ? e.message : 'Google sign-in failed';
+      setError(text.includes('Unsupported provider') || text.includes('provider is not enabled')
+        ? 'Google login is not enabled in Supabase yet. Use Gmail email-link login below, or enable Google OAuth in Supabase.'
+        : text);
+      setBusy(false);
+    }
+  };
+
+  const loginEmail = async () => {
+    setError(''); setMessage(''); setBusy(true);
+    try {
+      await signInWithEmail(email);
+      setMessage('Login link sent. Check your Gmail inbox and open the link to continue.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Email login failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <div className="auth-page"><div className="auth-card"><div className="auth-logo">C</div><h1>Welcome to Crazy SEO Team</h1><p>Login or create your account securely with Google/Gmail.</p><button className="google-btn" onClick={loginGoogle} disabled={busy}><span>G</span><b><LogIn size={16}/> Continue with Google</b></button><div className="auth-divider"><span>or use Gmail</span></div><div className="email-login"><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@gmail.com" autoComplete="email"/><button className="primary" onClick={loginEmail} disabled={busy}><Mail size={16}/> Send login link</button></div><div className="auth-create"><UserPlus size={15}/> New users automatically get an account after the first successful login.</div>{message && <div className="auth-success">{message}</div>}{error && <div className="auth-error">{error}</div>}<button className="back-btn" onClick={onBack}>← Back to website</button></div></div>;
 }
 
 export function UserBadge({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
