@@ -61,7 +61,7 @@ function mapUser(u: { id: string; email?: string; phone?: string; user_metadata?
   return { id: u.id, email: u.email, phone: u.phone, name, avatar, owner: isOwner(u.email) };
 }
 
-export function AuthPage({ onBack }: { onBack: () => void }) {
+export function AuthPage({ onBack, onSuccess }: { onBack: () => void; onSuccess?: () => void }) {
   const { signInWithEmail } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -74,6 +74,7 @@ export function AuthPage({ onBack }: { onBack: () => void }) {
     try {
       await signInWithEmail(email, password);
       setMessage('Login successful. Opening your workspace…');
+      window.setTimeout(() => onSuccess?.(), 150);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Login failed');
     } finally { setBusy(false); }
