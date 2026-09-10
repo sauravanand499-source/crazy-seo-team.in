@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { LogIn, LogOut, Mail, ShieldCheck, UserPlus } from 'lucide-react';
+import { LogIn, LogOut, Phone, ShieldCheck, UserPlus } from 'lucide-react';
 import { supabase, isOwner } from './lib/supabase';
 
-export type AuthUser = { id: string; email?: string; name?: string; avatar?: string; owner: boolean };
+export type AuthUser = { id: string; email?: string; phone?: string; name?: string; avatar?: string; owner: boolean };
 
 export function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -22,67 +22,76 @@ export function useAuth() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  const signInWithGoogle = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin },
-    });
+  const sendPhoneOtp = async (phone: string) => {
+    const clean = phone.replace(/[\s()-]/g, '');
+    if (!/^\+[1-9]\d{7,14}$/.test(clean)) {
+      throw new Error('Enter your mobile number with country code, e.g. +919876543210');
+    }
+    const { error } = await supabase.auth.signInWithOtp({ phone: clean });
     if (error) throw error;
   };
 
-  const signInWithEmail = async (email: string) => {
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail) throw new Error('Please enter your Gmail/email address.');
-    const { error } = await supabase.auth.signInWithOtp({
-      email: cleanEmail,
-      options: { emailRedirectTo: `${window.location.origin}/dashboard` },
-    });
+  const verifyPhoneOtp = async (phone: string, token: string) => {
+    const clean = phone.replace(/[\s()-]/g, '');
+    const code = token.replace(/\D/g, '');
+    if (!/^\+[1-9]\d{7,14}$/.test(clean)) throw new Error('Invalid mobile number.');
+    if (!/^\d{6}$/.test(code)) throw new Error('Enter the 6-digit OTP.');
+    const { error } = await supabase.auth.verifyOtp({ phone: clean, token: code, type: 'sms' });
     if (error) throw error;
   };
 
+  const resendPhoneOtp = async (phone: string) => sendPhoneOtp(phone);
   const signOut = async () => { await supabase.auth.signOut(); };
-  return { user, loading, signInWithGoogle, signInWithEmail, signOut, configured: true };
+  return { user, loading, sendPhoneOtp, verifyPhoneOtp, resendPhoneOtp, signOut, configured: true };
 }
 
-function mapUser(u: { id: string; email?: string; user_metadata?: Record<string, string> }): AuthUser {
-  const name = u.user_metadata?.full_name || u.user_metadata?.name || u.email?.split('@')[0];
+function mapUser(u: { id: string; email?: string; phone?: string; user_metadata?: Record<string, string> }): AuthUser {
+  const name = u.user_metadata?.full_name || u.user_metadata?.name || u.phone || u.email?.split('@')[0] || 'User';
   const avatar = u.user_metadata?.avatar_url || u.user_metadata?.picture;
-  return { id: u.id, email: u.email, name, avatar, owner: isOwner(u.email) };
+  return { id: u.id, email: u.email, phone: u.phone, name, avatar, owner: isOwner(u.email) };
 }
 
 export function AuthPage({ onBack }: { onBack: () => void }) {
-  const { signInWithGoogle, signInWithEmail } = useAuth();
-  const [email, setEmail] = useState('');
+  const { sendPhoneOtp, verifyPhoneOtp, resendPhoneOtp } = useAuth();
+  const [phone, setPhone] = useState('+91');
+  const [otp, setOtp] = useState('');
+  const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const loginGoogle = async () => {
+  const sendCode = async () => {
     setError(''); setMessage(''); setBusy(true);
     try {
-      await signInWithGoogle();
+      await sendPhoneOtp(phone);
+      setStep('otp');
+      setMessage('OTP sent to your mobile number. Check your SMS.');
     } catch (e) {
-      const text = e instanceof Error ? e.message : 'Google sign-in failed';
-      setError(text.includes('Unsupported provider') || text.includes('provider is not enabled')
-        ? 'Google login is not enabled in Supabase yet. Use Gmail email-link login below, or enable Google OAuth in Supabase.'
-        : text);
-      setBusy(false);
-    }
+      setError(e instanceof Error ? e.message : 'Could not send OTP');
+    } finally { setBusy(false); }
   };
 
-  const loginEmail = async () => {
+  const verifyCode = async () => {
     setError(''); setMessage(''); setBusy(true);
     try {
-      await signInWithEmail(email);
-      setMessage('Login link sent. Check your Gmail inbox and open the link to continue.');
+      await verifyPhoneOtp(phone, otp);
+      setMessage('Mobile verified. Your account is ready.');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Email login failed');
-    } finally {
-      setBusy(false);
-    }
+      setError(e instanceof Error ? e.message : 'Invalid OTP');
+    } finally { setBusy(false); }
   };
 
-  return <div className="auth-page"><div className="auth-card"><div className="auth-logo">C</div><h1>Welcome to Crazy SEO Team</h1><p>Login or create your account securely with Google/Gmail.</p><button className="google-btn" onClick={loginGoogle} disabled={busy}><span>G</span><b><LogIn size={16}/> Continue with Google</b></button><div className="auth-divider"><span>or use Gmail</span></div><div className="email-login"><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@gmail.com" autoComplete="email"/><button className="primary" onClick={loginEmail} disabled={busy}><Mail size={16}/> Send login link</button></div><div className="auth-create"><UserPlus size={15}/> New users automatically get an account after the first successful login.</div>{message && <div className="auth-success">{message}</div>}{error && <div className="auth-error">{error}</div>}<button className="back-btn" onClick={onBack}>← Back to website</button></div></div>;
+  const resend = async () => {
+    setError(''); setMessage(''); setBusy(true);
+    try {
+      await resendPhoneOtp(phone);
+      setMessage('A new OTP has been sent to your mobile.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not resend OTP');
+    } finally { setBusy(false); }
+  };
+
+  return <div className="auth-page"><div className="auth-card"><div className="auth-logo">C</div><h1>Welcome to Crazy SEO Team</h1><p>Create your account or login using your mobile number.</p>{step === 'phone' ? <><div className="phone-label"><Phone size={16}/> Mobile number</div><input className="auth-input" type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+91 9876543210" autoComplete="tel"/><button className="primary auth-main-btn" onClick={sendCode} disabled={busy}><Phone size={17}/> {busy ? 'Sending OTP…' : 'Send OTP'}</button><div className="auth-create"><UserPlus size={15}/> New users are automatically registered after OTP verification.</div></> : <><div className="otp-title">Enter the 6-digit OTP sent to <strong>{phone}</strong></div><input className="auth-input otp-input" inputMode="numeric" maxLength={6} value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder="••••••" autoComplete="one-time-code"/><button className="primary auth-main-btn" onClick={verifyCode} disabled={busy}><LogIn size={17}/> {busy ? 'Verifying…' : 'Verify OTP & Login'}</button><button className="secondary-btn" onClick={resend} disabled={busy}>Resend OTP</button><button className="back-btn" onClick={()=>{setStep('phone');setOtp('');setError('');setMessage('')}}>← Change mobile number</button></>}{message && <div className="auth-success">{message}</div>}{error && <div className="auth-error">{error}</div>}<button className="back-btn" onClick={onBack}>← Back to website</button></div></div>;
 }
 
 export function UserBadge({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
