@@ -1,11 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+// Vite env vars are preferred for deployment. The publishable key is safe to expose
+// in browser code; never put a Supabase service-role key here.
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://pbkyoszlgyhpygofemij.supabase.co';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_vEsFObkUZcIiVdxMoPo-7A_mFevsgwq';
 
-export const supabase = supabaseUrl && supabaseAnonKey
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export const OWNER_EMAILS = [
   'sauravanand499@gmail.com',
