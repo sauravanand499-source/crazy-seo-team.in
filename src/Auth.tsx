@@ -32,27 +32,8 @@ export function useAuth() {
     if (error) throw error;
   };
 
-  const sendPhoneOtp = async (phone: string) => {
-    const clean = phone.replace(/[\s()-]/g, '');
-    if (!/^\+[1-9]\d{7,14}$/.test(clean)) {
-      throw new Error('Enter your mobile number with country code, e.g. +919876543210');
-    }
-    const { error } = await supabase.auth.signInWithOtp({ phone: clean });
-    if (error) throw error;
-  };
-
-  const verifyPhoneOtp = async (phone: string, token: string) => {
-    const clean = phone.replace(/[\s()-]/g, '');
-    const code = token.replace(/\D/g, '');
-    if (!/^\+[1-9]\d{7,14}$/.test(clean)) throw new Error('Invalid mobile number.');
-    if (!/^\d{6}$/.test(code)) throw new Error('Enter the 6-digit OTP.');
-    const { error } = await supabase.auth.verifyOtp({ phone: clean, token: code, type: 'sms' });
-    if (error) throw error;
-  };
-
-  const resendPhoneOtp = async (phone: string) => sendPhoneOtp(phone);
   const signOut = async () => { await supabase.auth.signOut(); };
-  return { user, loading, signInWithEmail, sendPhoneOtp, verifyPhoneOtp, resendPhoneOtp, signOut, configured: true };
+  return { user, loading, signInWithEmail, signOut, configured: true };
 }
 
 function mapUser(u: { id: string; email?: string; phone?: string; user_metadata?: Record<string, string> }): AuthUser {
@@ -61,7 +42,7 @@ function mapUser(u: { id: string; email?: string; phone?: string; user_metadata?
   return { id: u.id, email: u.email, phone: u.phone, name, avatar, owner: isOwner(u.email) };
 }
 
-export function AuthPage({ onBack, onSuccess }: { onBack: () => void; onSuccess?: () => void }) {
+export function AuthPage({ onBack }: { onBack: () => void }) {
   const { signInWithEmail } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -74,7 +55,9 @@ export function AuthPage({ onBack, onSuccess }: { onBack: () => void; onSuccess?
     try {
       await signInWithEmail(email, password);
       setMessage('Login successful. Opening your workspace…');
-      window.setTimeout(() => onSuccess?.(), 150);
+      window.setTimeout(() => {
+        window.location.href = window.location.pathname === '/admin' ? '/admin' : '/dashboard';
+      }, 150);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Login failed');
     } finally { setBusy(false); }
